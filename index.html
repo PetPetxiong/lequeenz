@@ -1,0 +1,1219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<title>Studio Ledger — Commission Tracker</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Manrope:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
+<script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore-compat.js"></script>
+<style>
+  :root{
+    --bg:#F6F1EC;
+    --surface:#FFFFFF;
+    --surface-2:#FBF6F0;
+    --ink:#2A211D;
+    --ink-soft:#8C7B70;
+    --line:#E8DCD0;
+    --rose:#B14A5B;
+    --rose-deep:#8C3A47;
+    --rose-tint:#F4DFE3;
+    --gold:#AD8847;
+    --gold-tint:#F1E5C8;
+    --sage:#5C7A66;
+    --sage-tint:#DCE7DF;
+    --danger:#A23B33;
+    --danger-tint:#F4DEDB;
+    --radius:14px;
+    --radius-sm:9px;
+    --shadow:0 2px 14px rgba(42,33,29,0.07), 0 1px 2px rgba(42,33,29,0.06);
+    --font-display:'Fraunces', Georgia, serif;
+    --font-body:'Manrope', -apple-system, sans-serif;
+    --font-mono:'IBM Plex Mono', 'Courier New', monospace;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:var(--bg);
+    color:var(--ink);
+    font-family:var(--font-body);
+    -webkit-font-smoothing:antialiased;
+    min-height:100vh;
+  }
+  ::selection{background:var(--rose-tint);}
+  button{font-family:inherit;cursor:pointer;}
+  input,select{font-family:inherit;}
+  input:focus-visible, select:focus-visible, button:focus-visible{
+    outline:2px solid var(--rose); outline-offset:2px;
+  }
+  a{color:var(--rose);}
+
+  /* ---------- Layout shell ---------- */
+  #app{min-height:100vh; display:flex; flex-direction:column;}
+  .topbar{
+    position:sticky; top:0; z-index:30;
+    background:var(--ink); color:#FBF6F0;
+    display:flex; align-items:center; justify-content:space-between;
+    padding:14px 18px;
+  }
+  .brand{display:flex; align-items:center; gap:10px;}
+  .brand-mark{
+    width:34px; height:34px; border-radius:50%;
+    background:linear-gradient(135deg, var(--gold), var(--rose));
+    display:flex; align-items:center; justify-content:center;
+    font-family:var(--font-display); font-weight:700; font-size:16px; color:#fff;
+  }
+  .brand-text{font-family:var(--font-display); font-weight:600; font-size:18px; letter-spacing:0.2px;}
+  .brand-sub{font-family:var(--font-mono); font-size:10.5px; color:#C9BBAE; letter-spacing:1.2px; text-transform:uppercase;}
+  .topbar-actions{display:flex; align-items:center; gap:6px;}
+  .icon-btn{
+    width:36px;height:36px;border-radius:50%;border:none;background:rgba(255,255,255,0.08);
+    color:#FBF6F0; display:flex;align-items:center;justify-content:center; transition:background .15s;
+  }
+  .icon-btn:hover{background:rgba(255,255,255,0.18);}
+
+  .tabbar{
+    position:sticky; top:62px; z-index:29;
+    background:var(--surface);
+    border-bottom:1px solid var(--line);
+    display:flex; overflow-x:auto; scrollbar-width:none;
+  }
+  .tabbar::-webkit-scrollbar{display:none;}
+  .tab-btn{
+    flex:1 1 0; min-width:84px;
+    display:flex; flex-direction:column; align-items:center; gap:4px;
+    border:none; background:transparent; color:var(--ink-soft);
+    padding:10px 6px 9px; font-size:12px; font-weight:600;
+    border-bottom:2.5px solid transparent;
+  }
+  .tab-btn svg{width:19px;height:19px;}
+  .tab-btn.active{color:var(--rose); border-bottom-color:var(--rose);}
+
+  main{flex:1; width:100%; max-width:760px; margin:0 auto; padding:18px 16px 90px;}
+  .screen-title{font-family:var(--font-display); font-size:22px; font-weight:600; margin:2px 0 4px;}
+  .screen-sub{color:var(--ink-soft); font-size:13.5px; margin:0 0 18px;}
+
+  /* ---------- Cards ---------- */
+  .card{
+    background:var(--surface); border:1px solid var(--line); border-radius:var(--radius);
+    box-shadow:var(--shadow); padding:18px; margin-bottom:16px;
+  }
+  .card-title{font-family:var(--font-display); font-size:16px; font-weight:600; margin:0 0 14px; display:flex; align-items:center; gap:8px;}
+
+  /* ---------- Dashboard stat tiles ---------- */
+  .stat-section-label{
+    font-family:var(--font-mono); text-transform:uppercase; letter-spacing:1.4px; font-size:11px;
+    color:var(--ink-soft); margin:22px 0 10px; display:flex; align-items:center; gap:8px;
+  }
+  .stat-section-label:first-child{margin-top:0;}
+  .stat-section-label::after{content:""; flex:1; border-top:1px dashed var(--line);}
+  .stat-grid{display:grid; grid-template-columns:1fr 1fr; gap:12px;}
+  .stat-tile{
+    background:var(--surface); border:1px solid var(--line); border-radius:var(--radius);
+    padding:14px 14px 13px; box-shadow:var(--shadow); position:relative; overflow:hidden;
+  }
+  .stat-tile::before{content:""; position:absolute; left:0; top:0; bottom:0; width:4px;}
+  .stat-tile.c-gold::before{background:var(--gold);}
+  .stat-tile.c-sage::before{background:var(--sage);}
+  .stat-tile.c-rose::before{background:var(--rose);}
+  .stat-label{font-size:11.5px; color:var(--ink-soft); font-weight:600; text-transform:uppercase; letter-spacing:0.5px;}
+  .stat-value{font-family:var(--font-mono); font-size:21px; font-weight:600; margin-top:6px;}
+  .stat-tile.full{grid-column:1 / -1;}
+
+  /* ---------- Forms ---------- */
+  .field{margin-bottom:14px;}
+  .field label{display:block; font-size:11.5px; font-weight:700; text-transform:uppercase; letter-spacing:0.6px; color:var(--ink-soft); margin-bottom:6px;}
+  .field input[type=text], .field input[type=number], .field input[type=date], .field input[type=password], .field select{
+    width:100%; padding:11px 12px; border:1px solid var(--line); border-radius:var(--radius-sm);
+    background:var(--surface-2); font-size:15px; color:var(--ink);
+  }
+  .field .price-wrap{position:relative;}
+  .field .price-wrap span{position:absolute; left:12px; top:50%; transform:translateY(-50%); color:var(--ink-soft); font-family:var(--font-mono); font-weight:600; font-size:14px;}
+  .field .price-wrap input{padding-left:42px; font-family:var(--font-mono); font-weight:600;}
+
+  .pill-row{display:flex; gap:8px; flex-wrap:wrap;}
+  .pill-btn{
+    border:1.5px solid var(--line); background:var(--surface-2); color:var(--ink);
+    padding:9px 14px; border-radius:999px; font-size:13.5px; font-weight:700;
+  }
+  .pill-btn.active{background:var(--rose); border-color:var(--rose); color:#fff;}
+  .pill-btn.venue.active{background:var(--ink); border-color:var(--ink);}
+
+  .btn{
+    border:none; border-radius:999px; padding:13px 20px; font-weight:700; font-size:14.5px;
+    display:inline-flex; align-items:center; justify-content:center; gap:8px; width:100%;
+  }
+  .btn-primary{background:var(--rose); color:#fff;}
+  .btn-primary:hover{background:var(--rose-deep);}
+  .btn-secondary{background:var(--surface-2); color:var(--ink); border:1.5px solid var(--line);}
+  .btn-danger-outline{background:#fff; color:var(--danger); border:1.5px solid var(--danger-tint);}
+  .btn-sm{padding:8px 14px; font-size:13px; width:auto;}
+  .btn-block{width:100%;}
+
+  /* ---------- Receipt split visual (signature element) ---------- */
+  .receipt{
+    position:relative; margin-top:18px; padding:16px 16px 14px; border-top:1px dashed var(--line);
+  }
+  .receipt::before, .receipt::after{
+    content:""; position:absolute; top:-9px; width:18px; height:18px; border-radius:50%; background:var(--bg);
+  }
+  .card .receipt::before, .card .receipt::after{background:var(--surface-2);}
+  .receipt::before{left:-16px;}
+  .receipt::after{right:-16px;}
+  .split-bar{display:flex; height:34px; border-radius:8px; overflow:hidden; border:1px solid var(--line);}
+  .split-seg{display:flex; align-items:center; justify-content:center; font-family:var(--font-mono); font-size:12.5px; font-weight:600; color:#fff; white-space:nowrap; overflow:hidden;}
+  .split-seg.staff{background:var(--rose);}
+  .split-seg.company{background:var(--sage);}
+  .split-legend{display:flex; justify-content:space-between; margin-top:9px; font-size:12.5px; color:var(--ink-soft);}
+  .split-legend b{color:var(--ink); font-family:var(--font-mono);}
+  .legend-dot{display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:5px;}
+
+  /* ---------- Filters / report controls ---------- */
+  .filter-row{display:flex; gap:8px; flex-wrap:wrap; margin-bottom:10px;}
+  .filter-row select, .filter-row input{flex:1 1 130px; padding:9px 10px; border:1px solid var(--line); border-radius:var(--radius-sm); background:var(--surface-2); font-size:13.5px;}
+  .preset-row{display:flex; gap:7px; margin-bottom:12px; flex-wrap:wrap;}
+  .preset-btn{border:1.5px solid var(--line); background:var(--surface-2); padding:7px 12px; border-radius:999px; font-size:12.5px; font-weight:700; color:var(--ink-soft);}
+  .preset-btn.active{background:var(--gold-tint); border-color:var(--gold); color:#6b5527;}
+
+  .summary-receipt{background:var(--surface-2); border:1px solid var(--line); border-radius:var(--radius); padding:14px 16px; margin-bottom:14px;}
+  .summary-grid{display:grid; grid-template-columns:repeat(3,1fr); gap:10px; text-align:center;}
+  .summary-grid .lbl{font-size:10.5px; text-transform:uppercase; letter-spacing:0.5px; color:var(--ink-soft); font-weight:700;}
+  .summary-grid .val{font-family:var(--font-mono); font-weight:600; font-size:15px; margin-top:4px;}
+
+  /* ---------- Record row cards ---------- */
+  .rec-card{
+    background:var(--surface); border:1px solid var(--line); border-radius:var(--radius-sm);
+    padding:12px 14px; margin-bottom:10px; box-shadow:var(--shadow);
+  }
+  .rec-top{display:flex; justify-content:space-between; align-items:flex-start; gap:8px;}
+  .rec-service{font-weight:700; font-size:14.5px;}
+  .rec-meta{font-size:12px; color:var(--ink-soft); margin-top:2px;}
+  .rec-venue-tag{display:inline-block; font-size:10px; font-weight:700; padding:2px 7px; border-radius:5px; margin-left:6px; vertical-align:1px; letter-spacing:0.4px;}
+  .rec-venue-tag.studio{background:var(--sage-tint); color:#3c5444;}
+  .rec-venue-tag.d2d{background:var(--gold-tint); color:#6b5527;}
+  .rec-venue-tag.raub{background:var(--rose-tint); color:var(--rose-deep);}
+  .rec-amounts{display:flex; gap:14px; margin-top:9px; font-family:var(--font-mono); font-size:13px;}
+  .rec-amounts span{color:var(--ink-soft);}
+  .rec-amounts b{color:var(--ink); font-weight:600;}
+  .rec-actions{display:flex; gap:6px; flex-shrink:0;}
+  .icon-sm{width:30px;height:30px;border-radius:8px;border:1px solid var(--line); background:var(--surface-2); display:flex;align-items:center;justify-content:center; color:var(--ink-soft);}
+  .icon-sm:hover{background:var(--rose-tint); color:var(--rose-deep); border-color:var(--rose-tint);}
+  .icon-sm.del:hover{background:var(--danger-tint); color:var(--danger); border-color:var(--danger-tint);}
+
+  /* ---------- Staff cards ---------- */
+  .staff-card{display:flex; align-items:center; justify-content:space-between; background:var(--surface); border:1px solid var(--line); border-radius:var(--radius-sm); padding:12px 14px; margin-bottom:9px; box-shadow:var(--shadow);}
+  .staff-avatar{width:36px;height:36px;border-radius:50%; background:var(--rose-tint); color:var(--rose-deep); display:flex; align-items:center; justify-content:center; font-weight:700; font-family:var(--font-display);}
+  .staff-name-row{display:flex; align-items:center; gap:10px;}
+  .staff-month{font-family:var(--font-mono); font-size:12px; color:var(--ink-soft); margin-top:2px;}
+
+  /* ---------- Empty state ---------- */
+  .empty-state{text-align:center; padding:40px 18px; color:var(--ink-soft);}
+  .empty-state svg{width:40px;height:40px;color:var(--line); margin-bottom:10px;}
+  .empty-state p{margin:4px 0; font-size:13.5px;}
+
+  /* ---------- Login ---------- */
+  .login-wrap{min-height:100vh; display:flex; align-items:center; justify-content:center; padding:24px; background:
+    radial-gradient(circle at 20% 15%, rgba(177,74,91,0.08), transparent 45%),
+    radial-gradient(circle at 85% 85%, rgba(173,136,71,0.10), transparent 45%), var(--bg);}
+  .login-card{width:100%; max-width:380px; background:var(--surface); border:1px solid var(--line); border-radius:18px; box-shadow:var(--shadow); padding:34px 28px 28px; text-align:center;}
+  .login-mark{width:56px;height:56px; border-radius:50%; margin:0 auto 16px; background:linear-gradient(135deg, var(--gold), var(--rose)); display:flex; align-items:center; justify-content:center; font-family:var(--font-display); font-size:24px; font-weight:700; color:#fff;}
+  .login-title{font-family:var(--font-display); font-size:23px; font-weight:600; margin:0 0 4px;}
+  .login-sub{color:var(--ink-soft); font-size:13px; margin:0 0 24px;}
+  .login-error{color:var(--danger); font-size:12.5px; margin-top:10px; min-height:16px;}
+  .login-hint{margin-top:18px; font-size:11.5px; color:var(--ink-soft); border-top:1px dashed var(--line); padding-top:14px;}
+
+  /* ---------- Modal ---------- */
+  .modal-backdrop{position:fixed; inset:0; background:rgba(42,33,29,0.45); z-index:50; display:flex; align-items:flex-end; justify-content:center;}
+  @media(min-width:640px){.modal-backdrop{align-items:center;}}
+  .modal-card{background:var(--surface); width:100%; max-width:460px; border-radius:18px 18px 0 0; max-height:90vh; overflow-y:auto; padding:22px 20px 26px;}
+  @media(min-width:640px){.modal-card{border-radius:18px;}}
+  .modal-head{display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;}
+  .modal-head h3{font-family:var(--font-display); font-size:18px; margin:0;}
+
+  /* ---------- Toast ---------- */
+  #toast{position:fixed; bottom:90px; left:50%; transform:translateX(-50%) translateY(20px); background:var(--ink); color:#fff; padding:10px 18px; border-radius:999px; font-size:13px; font-weight:600; opacity:0; pointer-events:none; transition:all .25s ease; z-index:60; box-shadow:0 6px 20px rgba(0,0,0,0.2);}
+  #toast.show{opacity:1; transform:translateX(-50%) translateY(0);}
+
+  .loading-wrap{display:flex; flex-direction:column; align-items:center; justify-content:center; min-height:100vh; gap:12px; color:var(--ink-soft); font-size:13.5px;}
+  .spinner{width:30px;height:30px; border-radius:50%; border:3px solid var(--line); border-top-color:var(--rose); animation:spin 0.8s linear infinite;}
+  @keyframes spin{to{transform:rotate(360deg);}}
+
+  .add-row{display:flex; gap:8px;}
+  .add-row input{flex:1;}
+  .summary-row:last-child{border-bottom:none !important;}
+
+  @media(min-width:640px){
+    .stat-grid{grid-template-columns:repeat(3,1fr);}
+    main{padding-top:26px;}
+  }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<div id="toast"></div>
+
+<script>
+/* =========================================================
+   CONFIG
+   ========================================================= */
+const SERVICES = [
+  "Eyelash Extension","Eyebrow Touch Up","IPL","Facial","Ear Service",
+  "Eyebrow Embroidery","Lips Embroidery","Eyeliner Embroidery",
+  "Makeup","Teeth Whitening","Eyebrow Shaping"
+];
+const VENUES = ["STUDIO","D2D","RAUB"];
+const COMMISSIONS = [90,80,70,60,50];
+const DEFAULT_PASSWORD = "beauty123";
+
+/* =========================================================
+   FIREBASE CONFIG
+   Paste the config object from your Firebase project here.
+   (Firebase Console → Project Settings → General → Your apps → SDK setup and configuration)
+   ========================================================= */
+const firebaseConfig = {
+  apiKey: "AIzaSyAOWqd6JBTd6pmSKMZX6GTy7ViIJh4r6NA",
+  authDomain: "lequeenz.firebaseapp.com",
+  projectId: "lequeenz",
+  storageBucket: "lequeenz.firebasestorage.app",
+  messagingSenderId: "322550275477",
+  appId: "1:322550275477:web:7df7c326e325224d562a9c"
+};
+function firebaseIsConfigured(){
+  return firebaseConfig.apiKey && !firebaseConfig.apiKey.startsWith("PASTE_");
+}
+let db = null;
+if(firebaseIsConfigured()){
+  firebase.initializeApp(firebaseConfig);
+  db = firebase.firestore();
+}
+
+/* =========================================================
+   STATE
+   ========================================================= */
+let state = {
+  phase: "loading",      // loading | login | app
+  loginError: "",
+  settings: { password: DEFAULT_PASSWORD },
+  staff: [],
+  records: [],
+  activeTab: "dashboard",
+  modal: null,            // { type: 'editRecord'|'settings', payload }
+  newSaleDraft: defaultDraft(),
+  filters: { from: todayStr(), to: todayStr(), staff: "all", service: "all", venue: "all", preset: "today" },
+  recordsView: "browse",
+  summaryMonth: todayStr().slice(0,7),
+  staffAddValue: ""
+};
+
+function defaultDraft(){
+  return { date: todayStr(), staff: "", service: SERVICES[0], venue: "STUDIO", price: "", commission: 70 };
+}
+
+/* =========================================================
+   UTILITIES
+   ========================================================= */
+function todayStr(){
+  const d = new Date();
+  const off = d.getTimezoneOffset();
+  const local = new Date(d.getTime() - off*60000);
+  return local.toISOString().slice(0,10);
+}
+function monthStartStr(){ return todayStr().slice(0,7) + "-01"; }
+function monthEndStr(){
+  const [y,m] = todayStr().split("-").map(Number);
+  const last = new Date(y, m, 0).getDate();
+  return `${y}-${String(m).padStart(2,'0')}-${String(last).padStart(2,'0')}`;
+}
+function fmtMoney(n){
+  const v = Number(n)||0;
+  return "RM " + v.toLocaleString('en-MY', {minimumFractionDigits:2, maximumFractionDigits:2});
+}
+function fmtDate(s){
+  if(!s) return "";
+  const [y,m,d] = s.split("-");
+  const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  return `${parseInt(d)} ${months[parseInt(m)-1]} ${y}`;
+}
+function escapeHtml(str){
+  return String(str).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+function initials(name){
+  return (name||"?").trim().split(/\s+/).map(w=>w[0]).slice(0,2).join("").toUpperCase();
+}
+function uid(){ return 'r_' + Date.now().toString(36) + Math.random().toString(36).slice(2,7); }
+function venueTagClass(v){
+  if(v === 'STUDIO') return 'studio';
+  if(v === 'D2D') return 'd2d';
+  return 'raub';
+}
+function computeAmounts(price, commission){
+  const p = Number(price)||0;
+  const c = Number(commission)||0;
+  const staffAmt = Math.round(p * c / 100 * 100) / 100;
+  const companyAmt = Math.round((p - staffAmt) * 100) / 100;
+  return { staffAmt, companyAmt };
+}
+function showToast(msg){
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(window.__toastTimer);
+  window.__toastTimer = setTimeout(()=> t.classList.remove('show'), 2200);
+}
+
+/* =========================================================
+   STORAGE (Firestore)
+   ========================================================= */
+let unsubStaff = null, unsubRecords = null;
+
+async function loadSettings(){
+  try{
+    const doc = await db.collection('meta').doc('settings').get();
+    if(doc.exists){ state.settings = doc.data(); }
+    else { await db.collection('meta').doc('settings').set(state.settings); }
+  }catch(e){
+    console.error(e);
+    showToast("Couldn't reach the database — check your Firebase setup");
+  }
+}
+async function saveSettings(){
+  try{ await db.collection('meta').doc('settings').set(state.settings); }
+  catch(e){ showToast("Couldn't save settings — try again"); }
+}
+
+function startLiveListeners(){
+  unsubStaff = db.collection('meta').doc('staff').onSnapshot(doc=>{
+    const list = doc.exists ? (doc.data().list || []) : [];
+    if(list.length === 0 && !state._staffSeeded){
+      state._staffSeeded = true;
+      state.staff = ["Leila","Quinnie"];
+      saveStaff();
+    } else {
+      state.staff = list;
+    }
+    if(state.phase === 'app') render();
+  }, err=>{ console.error(err); showToast("Lost connection to staff list"); });
+
+  unsubRecords = db.collection('records').onSnapshot(snap=>{
+    state.records = snap.docs.map(d=> Object.assign({id: d.id}, d.data()));
+    if(state.phase === 'app') render();
+  }, err=>{ console.error(err); showToast("Lost connection to sales records"); });
+}
+function stopLiveListeners(){
+  if(unsubStaff) unsubStaff();
+  if(unsubRecords) unsubRecords();
+  unsubStaff = null; unsubRecords = null;
+}
+
+async function saveStaff(){
+  try{ await db.collection('meta').doc('staff').set({list: state.staff}); }
+  catch(e){ showToast("Couldn't save staff list — try again"); }
+}
+
+async function addRecordToDb(rec){
+  try{ await db.collection('records').doc(rec.id).set(rec); return true; }
+  catch(e){ showToast("Couldn't save — check connection and try again"); return false; }
+}
+async function updateRecordInDb(id, data){
+  try{ await db.collection('records').doc(id).update(data); return true; }
+  catch(e){ showToast("Couldn't save — check connection and try again"); return false; }
+}
+async function deleteRecordFromDb(id){
+  try{ await db.collection('records').doc(id).delete(); return true; }
+  catch(e){ showToast("Couldn't delete — check connection and try again"); return false; }
+}
+
+
+/* =========================================================
+   ICONS (inline minimal svg set)
+   ========================================================= */
+const ICONS = {
+  dashboard: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg>',
+  plus: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>',
+  list: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>',
+  users: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>',
+  gear: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>',
+  logout: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>',
+  edit: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4Z"/></svg>',
+  trash: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>',
+  empty: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>',
+  download: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>',
+  close: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>'
+};
+
+/* =========================================================
+   DERIVED DATA HELPERS
+   ========================================================= */
+function recordsFor(dateStr){ return state.records.filter(r => r.date === dateStr); }
+function recordsForMonth(monthPrefix){ return state.records.filter(r => r.date.startsWith(monthPrefix)); }
+function sumField(recs, field){ return recs.reduce((s,r)=> s + (Number(r[field])||0), 0); }
+
+function applyFilters(){
+  return state.records.filter(r=>{
+    if(state.filters.from && r.date < state.filters.from) return false;
+    if(state.filters.to && r.date > state.filters.to) return false;
+    if(state.filters.staff !== 'all' && r.staff !== state.filters.staff) return false;
+    if(state.filters.service !== 'all' && r.service !== state.filters.service) return false;
+    if(state.filters.venue !== 'all' && r.venue !== state.filters.venue) return false;
+    return true;
+  }).sort((a,b)=> (b.date+b.createdAt).localeCompare(a.date+a.createdAt));
+}
+
+/* =========================================================
+   RENDER: ROOT
+   ========================================================= */
+function render(){
+  const app = document.getElementById('app');
+  if(state.phase === 'not-configured'){
+    app.innerHTML = `
+    <div class="login-wrap">
+      <div class="login-card" style="max-width:440px; text-align:left;">
+        <div class="login-mark" style="margin:0 0 16px;">SL</div>
+        <div class="login-title">Almost there</div>
+        <div class="login-sub">This app needs a Firebase database connected before it can run.</div>
+        <div style="font-size:13px; line-height:1.6; color:var(--ink-soft); background:var(--surface-2); border:1px dashed var(--line); border-radius:var(--radius-sm); padding:14px;">
+          Open this HTML file in a text editor, find the <b>firebaseConfig</b> block near the top of the script, and paste in the config values from your Firebase project (Project Settings → General → Your apps). Then re-upload the file.
+        </div>
+      </div>
+    </div>`;
+    return;
+  }
+  if(state.phase === 'loading'){
+    app.innerHTML = `<div class="loading-wrap"><div class="spinner"></div><div>Loading your studio data…</div></div>`;
+    return;
+  }
+  if(state.phase === 'login'){
+    app.innerHTML = renderLogin();
+    bindLogin();
+    return;
+  }
+  app.innerHTML = `
+    ${renderTopbar()}
+    ${renderTabbar()}
+    <main id="main">${renderActiveTab()}</main>
+    ${state.modal ? renderModal() : ''}
+  `;
+  bindShell();
+}
+
+function renderTopbar(){
+  return `
+  <div class="topbar">
+    <div class="brand">
+      <div class="brand-mark">SL</div>
+      <div>
+        <div class="brand-text">Studio Ledger</div>
+        <div class="brand-sub">Commission Tracker</div>
+      </div>
+    </div>
+    <div class="topbar-actions">
+      <button class="icon-btn" data-action="open-settings" title="Settings">${ICONS.gear}</button>
+      <button class="icon-btn" data-action="logout" title="Log out">${ICONS.logout}</button>
+    </div>
+  </div>`;
+}
+
+function renderTabbar(){
+  const tabs = [
+    {id:'dashboard', label:'Dashboard', icon:ICONS.dashboard},
+    {id:'newsale', label:'New Sale', icon:ICONS.plus},
+    {id:'records', label:'Records', icon:ICONS.list},
+    {id:'staff', label:'Staff', icon:ICONS.users},
+  ];
+  return `<div class="tabbar">${tabs.map(t=>`
+    <button class="tab-btn ${state.activeTab===t.id?'active':''}" data-action="set-tab" data-tab="${t.id}">
+      ${t.icon}<span>${t.label}</span>
+    </button>`).join('')}</div>`;
+}
+
+function renderActiveTab(){
+  if(state.activeTab === 'dashboard') return renderDashboard();
+  if(state.activeTab === 'newsale') return renderNewSale();
+  if(state.activeTab === 'records') return renderRecords();
+  if(state.activeTab === 'staff') return renderStaff();
+  return '';
+}
+
+/* =========================================================
+   LOGIN SCREEN
+   ========================================================= */
+function renderLogin(){
+  return `
+  <div class="login-wrap">
+    <div class="login-card">
+      <div class="login-mark">SL</div>
+      <div class="login-title">Studio Ledger</div>
+      <div class="login-sub">Daily commission tracker for your beauty studio</div>
+      <div class="field" style="text-align:left;">
+        <label for="login-pw">Studio password</label>
+        <input type="password" id="login-pw" placeholder="Enter password" autocomplete="current-password">
+      </div>
+      <button class="btn btn-primary" id="login-btn">Enter Studio</button>
+      <div class="login-error" id="login-error">${state.loginError}</div>
+      <div class="login-hint">First time here? The default password is <b>${escapeHtml(DEFAULT_PASSWORD)}</b> — change it anytime from Settings after logging in.</div>
+    </div>
+  </div>`;
+}
+function bindLogin(){
+  const btn = document.getElementById('login-btn');
+  const input = document.getElementById('login-pw');
+  const tryLogin = async ()=>{
+    if(input.value === state.settings.password){
+      state.loginError = "";
+      startLiveListeners();
+      state.phase = "app";
+      render();
+    } else {
+      state.loginError = "Incorrect password. Please try again.";
+      render();
+      document.getElementById('login-pw').focus();
+    }
+  };
+  btn.addEventListener('click', tryLogin);
+  input.addEventListener('keydown', e=>{ if(e.key==='Enter') tryLogin(); });
+  input.focus();
+}
+
+/* =========================================================
+   DASHBOARD
+   ========================================================= */
+function renderDashboard(){
+  const today = todayStr();
+  const todays = recordsFor(today);
+  const monthRecs = recordsForMonth(today.slice(0,7));
+  const tSales = sumField(todays,'price'), tComm = sumField(todays,'staffAmt'), tCo = sumField(todays,'companyAmt');
+  const mSales = sumField(monthRecs,'price'), mComm = sumField(monthRecs,'staffAmt'), mCo = sumField(monthRecs,'companyAmt');
+  const recentToday = todays.slice().sort((a,b)=> b.createdAt.localeCompare(a.createdAt));
+
+  return `
+  <div class="screen-title">Dashboard</div>
+  <div class="screen-sub">${fmtDate(today)} · ${state.staff.length} ${state.staff.length===1?'partner':'partners'} on the books</div>
+
+  <div class="stat-section-label">Today</div>
+  <div class="stat-grid">
+    <div class="stat-tile c-gold"><div class="stat-label">Total Sales</div><div class="stat-value">${fmtMoney(tSales)}</div></div>
+    <div class="stat-tile c-rose"><div class="stat-label">Partner Commission</div><div class="stat-value">${fmtMoney(tComm)}</div></div>
+    <div class="stat-tile c-sage full"><div class="stat-label">Company Income</div><div class="stat-value">${fmtMoney(tCo)}</div></div>
+  </div>
+
+  <div class="stat-section-label">This Month</div>
+  <div class="stat-grid">
+    <div class="stat-tile c-gold"><div class="stat-label">Total Sales</div><div class="stat-value">${fmtMoney(mSales)}</div></div>
+    <div class="stat-tile c-rose"><div class="stat-label">Partner Commission</div><div class="stat-value">${fmtMoney(mComm)}</div></div>
+    <div class="stat-tile c-sage full"><div class="stat-label">Company Income</div><div class="stat-value">${fmtMoney(mCo)}</div></div>
+  </div>
+
+  <div class="stat-section-label">Today's Entries (${recentToday.length})</div>
+  ${recentToday.length === 0 ? `
+    <div class="empty-state">${ICONS.empty}<p>No sales logged yet today.</p>
+      <button class="btn btn-primary btn-sm" style="margin-top:10px;" data-action="set-tab" data-tab="newsale">${ICONS.plus} Add today's first sale</button>
+    </div>` : recentToday.map(r=>renderRecordCard(r)).join('')}
+  `;
+}
+
+/* =========================================================
+   NEW SALE
+   ========================================================= */
+function renderNewSale(isEdit, rec){
+  const d = isEdit ? rec : state.newSaleDraft;
+  const { staffAmt, companyAmt } = computeAmounts(d.price, d.commission);
+  const noStaff = state.staff.length === 0 && !isEdit;
+  let staffOptions = state.staff.slice();
+  if(isEdit && d.staff && !staffOptions.includes(d.staff)) staffOptions = [d.staff, ...staffOptions];
+  if(!isEdit && !d.staff && staffOptions.length > 0){ d.staff = staffOptions[0]; }
+
+  return `
+  ${!isEdit ? `<div class="screen-title">New Sale</div><div class="screen-sub">Log a service and split the commission automatically</div>` : ''}
+  <div class="card">
+    <div class="field">
+      <label>Date</label>
+      <input type="date" id="f-date" value="${d.date}" max="${todayStr()}">
+    </div>
+    <div class="field">
+      <label>Staff / Partner</label>
+      ${noStaff ? `
+        <div style="font-size:13px; color:var(--ink-soft); background:var(--surface-2); border:1px dashed var(--line); border-radius:var(--radius-sm); padding:10px 12px;">
+          No staff added yet. <a href="#" data-action="set-tab" data-tab="staff">Add a staff member first →</a>
+        </div>` : `
+        <select id="f-staff">
+          ${staffOptions.map(s=>`<option value="${escapeHtml(s)}" ${d.staff===s?'selected':''}>${escapeHtml(s)}</option>`).join('')}
+        </select>`}
+    </div>
+    <div class="field">
+      <label>Service Type</label>
+      <select id="f-service">
+        ${SERVICES.map(s=>`<option value="${escapeHtml(s)}" ${d.service===s?'selected':''}>${escapeHtml(s)}</option>`).join('')}
+      </select>
+    </div>
+    <div class="field">
+      <label>Venue</label>
+      <div class="pill-row">
+        ${VENUES.map(v=>`<button type="button" class="pill-btn venue ${d.venue===v?'active':''}" data-action="set-venue" data-venue="${v}">${v}</button>`).join('')}
+      </div>
+    </div>
+    <div class="field">
+      <label>Service Price</label>
+      <div class="price-wrap"><span>RM</span><input type="number" inputmode="decimal" min="0" step="0.01" id="f-price" placeholder="0.00" value="${d.price}"></div>
+    </div>
+    <div class="field">
+      <label>Commission %</label>
+      <div class="pill-row">
+        ${COMMISSIONS.map(c=>`<button type="button" class="pill-btn ${Number(d.commission)===c?'active':''}" data-action="set-commission" data-commission="${c}">${c}%</button>`).join('')}
+      </div>
+    </div>
+
+    <div class="receipt">
+      <div class="split-bar">
+        <div class="split-seg staff" style="width:${d.commission}%">${d.commission}%</div>
+        <div class="split-seg company" style="width:${100-d.commission}%">${100-d.commission}%</div>
+      </div>
+      <div class="split-legend">
+        <div><span class="legend-dot" style="background:var(--rose)"></span>Partner <b>${fmtMoney(staffAmt)}</b></div>
+        <div><span class="legend-dot" style="background:var(--sage)"></span>Company <b>${fmtMoney(companyAmt)}</b></div>
+      </div>
+    </div>
+
+    <div style="margin-top:18px; display:flex; gap:10px;">
+      ${isEdit ? `<button class="btn btn-secondary" data-action="cancel-edit">Cancel</button>` : ''}
+      <button class="btn btn-primary" data-action="${isEdit?'update-record':'save-record'}" ${noStaff?'disabled style="opacity:.5;"':''}>${isEdit?'Update Sale':'Save Sale'}</button>
+    </div>
+  </div>`;
+}
+
+/* =========================================================
+   RECORD CARD (shared by dashboard + records list)
+   ========================================================= */
+function renderRecordCard(r){
+  return `
+  <div class="rec-card">
+    <div class="rec-top">
+      <div>
+        <div class="rec-service">${escapeHtml(r.service)} <span class="rec-venue-tag ${venueTagClass(r.venue)}">${r.venue}</span></div>
+        <div class="rec-meta">${escapeHtml(r.staff)} · ${fmtDate(r.date)} · ${r.commission}% commission</div>
+      </div>
+      <div class="rec-actions">
+        <button class="icon-sm" data-action="edit-record" data-id="${r.id}" title="Edit">${ICONS.edit}</button>
+        <button class="icon-sm del" data-action="delete-record" data-id="${r.id}" title="Delete">${ICONS.trash}</button>
+      </div>
+    </div>
+    <div class="rec-amounts">
+      <span>Price <b>${fmtMoney(r.price)}</b></span>
+      <span>Partner <b>${fmtMoney(r.staffAmt)}</b></span>
+      <span>Company <b>${fmtMoney(r.companyAmt)}</b></span>
+    </div>
+  </div>`;
+}
+
+/* =========================================================
+   RECORDS & REPORTS
+   ========================================================= */
+function renderRecords(){
+  return `
+  <div class="screen-title">Records &amp; Reports</div>
+  <div class="screen-sub">Search, review, and manage every logged sale</div>
+
+  <div class="pill-row" style="margin-bottom:16px;">
+    <button class="pill-btn ${state.recordsView==='browse'?'active':''}" data-action="set-records-view" data-view="browse">Browse Records</button>
+    <button class="pill-btn ${state.recordsView==='summary'?'active':''}" data-action="set-records-view" data-view="summary">Monthly Summary</button>
+  </div>
+
+  ${state.recordsView === 'summary' ? renderMonthlySummary() : renderBrowseRecords()}
+  `;
+}
+
+function renderBrowseRecords(){
+  const filtered = applyFilters();
+  const sales = sumField(filtered,'price'), comm = sumField(filtered,'staffAmt'), co = sumField(filtered,'companyAmt');
+
+  return `
+  <div class="card">
+    <div class="preset-row">
+      <button class="preset-btn ${state.filters.preset==='today'?'active':''}" data-action="preset" data-preset="today">Today</button>
+      <button class="preset-btn ${state.filters.preset==='month'?'active':''}" data-action="preset" data-preset="month">This Month</button>
+      <button class="preset-btn ${state.filters.preset==='all'?'active':''}" data-action="preset" data-preset="all">All Time</button>
+      <button class="preset-btn ${state.filters.preset==='custom'?'active':''}" data-action="preset" data-preset="custom">Custom Range</button>
+    </div>
+    <div class="field" style="margin-bottom:6px;"><label>Date range</label></div>
+    <div class="filter-row" style="margin-top:-6px;">
+      <div style="flex:1 1 130px;">
+        <div style="font-size:11px; color:var(--ink-soft); margin-bottom:3px;">From</div>
+        <input type="date" id="ff-from" value="${state.filters.from}" style="width:100%;">
+      </div>
+      <div style="flex:1 1 130px;">
+        <div style="font-size:11px; color:var(--ink-soft); margin-bottom:3px;">To</div>
+        <input type="date" id="ff-to" value="${state.filters.to}" style="width:100%;">
+      </div>
+    </div>
+    <div class="filter-row">
+      <select id="ff-staff">
+        <option value="all">All staff</option>
+        ${state.staff.map(s=>`<option value="${escapeHtml(s)}" ${state.filters.staff===s?'selected':''}>${escapeHtml(s)}</option>`).join('')}
+      </select>
+      <select id="ff-service">
+        <option value="all">All services</option>
+        ${SERVICES.map(s=>`<option value="${escapeHtml(s)}" ${state.filters.service===s?'selected':''}>${escapeHtml(s)}</option>`).join('')}
+      </select>
+      <select id="ff-venue">
+        <option value="all">All venues</option>
+        ${VENUES.map(v=>`<option value="${v}" ${state.filters.venue===v?'selected':''}>${v}</option>`).join('')}
+      </select>
+    </div>
+  </div>
+
+  <div class="summary-receipt">
+    <div class="summary-grid">
+      <div><div class="lbl">Sales</div><div class="val">${fmtMoney(sales)}</div></div>
+      <div><div class="lbl">Commission</div><div class="val">${fmtMoney(comm)}</div></div>
+      <div><div class="lbl">Company</div><div class="val">${fmtMoney(co)}</div></div>
+    </div>
+  </div>
+
+  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+    <div class="stat-section-label" style="margin:0; flex:1;">${filtered.length} ${filtered.length===1?'entry':'entries'}</div>
+    <button class="btn btn-secondary btn-sm" data-action="export-csv">${ICONS.download} Export CSV</button>
+  </div>
+
+  ${filtered.length===0 ? `
+    <div class="empty-state">${ICONS.empty}<p>No sales match these filters yet.</p></div>
+  ` : filtered.map(r=>renderRecordCard(r)).join('')}
+  `;
+}
+
+/* =========================================================
+   MONTHLY SUMMARY
+   ========================================================= */
+function renderMonthlySummary(){
+  const monthRecs = recordsForMonth(state.summaryMonth);
+  const sales = sumField(monthRecs,'price'), comm = sumField(monthRecs,'staffAmt'), co = sumField(monthRecs,'companyAmt');
+
+  const byService = {};
+  monthRecs.forEach(r=>{
+    if(!byService[r.service]) byService[r.service] = {count:0, revenue:0};
+    byService[r.service].count++;
+    byService[r.service].revenue += r.price;
+  });
+  const serviceRows = Object.keys(byService).sort((a,b)=> byService[b].count - byService[a].count);
+
+  const byStaff = {};
+  monthRecs.forEach(r=>{
+    if(!byStaff[r.staff]) byStaff[r.staff] = {count:0, commission:0, revenue:0};
+    byStaff[r.staff].count++;
+    byStaff[r.staff].commission += r.staffAmt;
+    byStaff[r.staff].revenue += r.price;
+  });
+  const staffRows = Object.keys(byStaff).sort((a,b)=> byStaff[b].revenue - byStaff[a].revenue);
+
+  const byVenue = {};
+  monthRecs.forEach(r=>{
+    if(!byVenue[r.venue]) byVenue[r.venue] = {count:0, revenue:0};
+    byVenue[r.venue].count++;
+    byVenue[r.venue].revenue += r.price;
+  });
+  const venueRows = Object.keys(byVenue).sort((a,b)=> byVenue[b].count - byVenue[a].count);
+
+  return `
+  <div class="card">
+    <div class="field" style="margin-bottom:0;">
+      <label>Month</label>
+      <input type="month" id="ff-summary-month" value="${state.summaryMonth}">
+    </div>
+  </div>
+
+  <div class="stat-grid" style="margin-bottom:16px;">
+    <div class="stat-tile c-gold"><div class="stat-label">Services Done</div><div class="stat-value">${monthRecs.length}</div></div>
+    <div class="stat-tile c-rose"><div class="stat-label">Partner Commission</div><div class="stat-value">${fmtMoney(comm)}</div></div>
+    <div class="stat-tile c-gold full"><div class="stat-label">Total Sales</div><div class="stat-value">${fmtMoney(sales)}</div></div>
+    <div class="stat-tile c-sage full"><div class="stat-label">Company Income</div><div class="stat-value">${fmtMoney(co)}</div></div>
+  </div>
+
+  ${monthRecs.length===0 ? `
+    <div class="empty-state">${ICONS.empty}<p>No sales logged for this month yet.</p></div>
+  ` : `
+  <div class="stat-section-label">By Service</div>
+  <div class="card">
+    ${serviceRows.map(s=>`
+      <div style="display:flex; justify-content:space-between; align-items:center; padding:8px 0; border-bottom:1px solid var(--line);" class="summary-row">
+        <div>
+          <div style="font-weight:700; font-size:13.5px;">${escapeHtml(s)}</div>
+          <div style="font-size:11.5px; color:var(--ink-soft);">${byService[s].count} ${byService[s].count===1?'service':'services'}</div>
+        </div>
+        <div style="font-family:var(--font-mono); font-weight:600; font-size:13.5px;">${fmtMoney(byService[s].revenue)}</div>
+      </div>`).join('')}
+  </div>
+
+  <div class="stat-section-label">By Staff / Partner</div>
+  <div class="card">
+    ${staffRows.map(s=>`
+      <div style="display:flex; justify-content:space-between; align-items:center; padding:8px 0; border-bottom:1px solid var(--line);" class="summary-row">
+        <div>
+          <div style="font-weight:700; font-size:13.5px;">${escapeHtml(s)}</div>
+          <div style="font-size:11.5px; color:var(--ink-soft);">${byStaff[s].count} ${byStaff[s].count===1?'service':'services'} · ${fmtMoney(byStaff[s].revenue)} sold</div>
+        </div>
+        <div style="font-family:var(--font-mono); font-weight:600; font-size:13.5px; color:var(--rose-deep);">${fmtMoney(byStaff[s].commission)}</div>
+      </div>`).join('')}
+  </div>
+
+  <div class="stat-section-label">By Venue</div>
+  <div class="card">
+    ${venueRows.map(v=>`
+      <div style="display:flex; justify-content:space-between; align-items:center; padding:8px 0; border-bottom:1px solid var(--line);" class="summary-row">
+        <div style="font-weight:700; font-size:13.5px;">${v} <span class="rec-venue-tag ${venueTagClass(v)}">${byVenue[v].count}</span></div>
+        <div style="font-family:var(--font-mono); font-weight:600; font-size:13.5px;">${fmtMoney(byVenue[v].revenue)}</div>
+      </div>`).join('')}
+  </div>
+  `}
+  `;
+}
+
+/* =========================================================
+   STAFF
+   ========================================================= */
+function renderStaff(){
+  const monthPrefix = todayStr().slice(0,7);
+  const monthRecs = recordsForMonth(monthPrefix);
+
+  return `
+  <div class="screen-title">Staff &amp; Partners</div>
+  <div class="screen-sub">Manage your team and see this month's earnings at a glance</div>
+
+  <div class="card">
+    <div class="card-title">Add a staff member</div>
+    <div class="add-row">
+      <input type="text" id="new-staff-name" placeholder="Full name" value="${escapeHtml(state.staffAddValue)}">
+      <button class="btn btn-primary btn-sm" data-action="add-staff">${ICONS.plus} Add</button>
+    </div>
+  </div>
+
+  <div class="stat-section-label">${state.staff.length} ${state.staff.length===1?'partner':'partners'} · this month's earnings</div>
+  ${state.staff.length===0 ? `
+    <div class="empty-state">${ICONS.empty}<p>No staff added yet. Add your first partner above.</p></div>
+  ` : state.staff.map(s=>{
+    const recs = monthRecs.filter(r=>r.staff===s);
+    const earned = sumField(recs,'staffAmt');
+    const count = recs.length;
+    return `
+    <div class="staff-card">
+      <div class="staff-name-row">
+        <div class="staff-avatar">${escapeHtml(initials(s))}</div>
+        <div>
+          <div style="font-weight:700; font-size:14.5px;">${escapeHtml(s)}</div>
+          <div class="staff-month">${fmtMoney(earned)} · ${count} ${count===1?'sale':'sales'} this month</div>
+        </div>
+      </div>
+      <button class="icon-sm del" data-action="delete-staff" data-name="${escapeHtml(s)}" title="Remove staff">${ICONS.trash}</button>
+    </div>`;
+  }).join('')}
+  `;
+}
+
+/* =========================================================
+   MODALS
+   ========================================================= */
+function renderModal(){
+  if(state.modal.type === 'editRecord'){
+    return `<div class="modal-backdrop" data-action="close-modal-backdrop">
+      <div class="modal-card" data-stop>
+        <div class="modal-head"><h3>Edit Sale</h3><button class="icon-btn" style="color:var(--ink); background:var(--surface-2);" data-action="close-modal">${ICONS.close}</button></div>
+        ${renderNewSale(true, state.modal.payload)}
+      </div>
+    </div>`;
+  }
+  if(state.modal.type === 'settings'){
+    return `<div class="modal-backdrop" data-action="close-modal-backdrop">
+      <div class="modal-card" data-stop>
+        <div class="modal-head"><h3>Settings</h3><button class="icon-btn" style="color:var(--ink); background:var(--surface-2);" data-action="close-modal">${ICONS.close}</button></div>
+        <div class="field">
+          <label>Current password</label>
+          <input type="password" id="set-cur-pw" placeholder="Current password">
+        </div>
+        <div class="field">
+          <label>New password</label>
+          <input type="password" id="set-new-pw" placeholder="New password">
+        </div>
+        <div class="field">
+          <label>Confirm new password</label>
+          <input type="password" id="set-confirm-pw" placeholder="Confirm new password">
+        </div>
+        <div id="settings-error" style="color:var(--danger); font-size:12.5px; margin-bottom:10px;"></div>
+        <button class="btn btn-primary" data-action="change-password">Update Password</button>
+        <div class="login-hint" style="text-align:left;">This studio's data (sales, staff, and login) lives in your Firebase database and updates live across every device. The password screen keeps casual visitors out, but it isn't server-side security — check your Firestore security rules if you want to restrict access more strictly.</div>
+      </div>
+    </div>`;
+  }
+  return '';
+}
+
+/* =========================================================
+   EVENT BINDING
+   ========================================================= */
+function bindShell(){
+  // live form bindings depending on active tab / modal
+  if(state.activeTab === 'newsale' && !state.modal){
+    bindSaleForm(false);
+  }
+  if(state.modal && state.modal.type === 'editRecord'){
+    bindSaleForm(true);
+  }
+  if(state.activeTab === 'records'){
+    bindFilters();
+    const monthEl = document.getElementById('ff-summary-month');
+    if(monthEl) monthEl.addEventListener('change', e=>{ state.summaryMonth = e.target.value; render(); });
+  }
+  if(state.activeTab === 'staff'){
+    const input = document.getElementById('new-staff-name');
+    if(input){
+      input.addEventListener('input', e=> state.staffAddValue = e.target.value);
+      input.addEventListener('keydown', e=>{ if(e.key==='Enter') addStaff(); });
+    }
+  }
+}
+
+function bindSaleForm(isEdit){
+  const draftRef = isEdit ? state.modal.payload : state.newSaleDraft;
+  const dateEl = document.getElementById('f-date');
+  const staffEl = document.getElementById('f-staff');
+  const serviceEl = document.getElementById('f-service');
+  const priceEl = document.getElementById('f-price');
+  if(dateEl) dateEl.addEventListener('change', e=>{ draftRef.date = e.target.value; });
+  if(staffEl) staffEl.addEventListener('change', e=>{ draftRef.staff = e.target.value; });
+  if(serviceEl) serviceEl.addEventListener('change', e=>{ draftRef.service = e.target.value; });
+  if(priceEl) priceEl.addEventListener('input', e=>{ draftRef.price = e.target.value; livePreviewUpdate(isEdit); });
+}
+
+function livePreviewUpdate(isEdit){
+  // light-weight re-render of just the form area to keep typing smooth
+  if(isEdit){
+    document.querySelector('.modal-card').innerHTML = `
+      <div class="modal-head"><h3>Edit Sale</h3><button class="icon-btn" style="color:var(--ink); background:var(--surface-2);" data-action="close-modal">${ICONS.close}</button></div>
+      ${renderNewSale(true, state.modal.payload)}`;
+  } else {
+    document.getElementById('main').innerHTML = renderNewSale(false);
+  }
+  bindSaleForm(isEdit);
+  document.getElementById('f-price').focus();
+  document.getElementById('f-price').selectionStart = document.getElementById('f-price').value.length;
+}
+
+function bindFilters(){
+  const map = {'ff-from':'from','ff-to':'to','ff-staff':'staff','ff-service':'service','ff-venue':'venue'};
+  Object.keys(map).forEach(id=>{
+    const el = document.getElementById(id);
+    if(el) el.addEventListener('change', e=>{
+      state.filters[map[id]] = e.target.value;
+      state.filters.preset = 'custom';
+      render();
+    });
+  });
+}
+
+function handleClick(e){
+  const el = e.target.closest('[data-action]');
+  if(el && el.hasAttribute('data-stop')){ /* no-op */ }
+  if(!el) {
+    if(e.target.closest('[data-stop]')) return;
+    if(e.target.classList.contains('modal-backdrop')){ closeModal(); }
+    return;
+  }
+  const action = el.dataset.action;
+
+  switch(action){
+    case 'set-tab':
+      e.preventDefault();
+      state.activeTab = el.dataset.tab;
+      render();
+      break;
+    case 'set-venue':
+      (state.modal && state.modal.type==='editRecord' ? state.modal.payload : state.newSaleDraft).venue = el.dataset.venue;
+      render();
+      break;
+    case 'set-commission':
+      (state.modal && state.modal.type==='editRecord' ? state.modal.payload : state.newSaleDraft).commission = Number(el.dataset.commission);
+      render();
+      break;
+    case 'set-records-view':
+      state.recordsView = el.dataset.view;
+      render();
+      break;
+    case 'save-record':
+      saveNewRecord();
+      break;
+    case 'edit-record':
+      openEditModal(el.dataset.id);
+      break;
+    case 'update-record':
+      updateRecord();
+      break;
+    case 'cancel-edit':
+      closeModal();
+      break;
+    case 'delete-record':
+      deleteRecord(el.dataset.id);
+      break;
+    case 'add-staff':
+      addStaff();
+      break;
+    case 'delete-staff':
+      deleteStaff(el.dataset.name);
+      break;
+    case 'preset':
+      applyPreset(el.dataset.preset);
+      break;
+    case 'export-csv':
+      exportCsv();
+      break;
+    case 'open-settings':
+      state.modal = { type:'settings' };
+      render();
+      break;
+    case 'change-password':
+      changePassword();
+      break;
+    case 'close-modal':
+    case 'close-modal-backdrop':
+      if(action==='close-modal-backdrop' && e.target !== el) break;
+      closeModal();
+      break;
+    case 'logout':
+      logout();
+      break;
+  }
+}
+
+/* ---- actions ---- */
+async function saveNewRecord(){
+  const d = state.newSaleDraft;
+  if(!d.staff){ showToast("Please select a staff member"); return; }
+  if(!d.price || Number(d.price) <= 0){ showToast("Please enter a valid price"); return; }
+  const { staffAmt, companyAmt } = computeAmounts(d.price, d.commission);
+  const rec = {
+    id: uid(), date: d.date, staff: d.staff, service: d.service, venue: d.venue,
+    price: Number(d.price), commission: Number(d.commission), staffAmt, companyAmt,
+    createdAt: new Date().toISOString()
+  };
+  const ok = await addRecordToDb(rec);
+  if(!ok) return;
+  showToast("Sale saved ✓");
+  state.newSaleDraft = defaultDraft();
+  state.newSaleDraft.staff = d.staff; // keep same staff/venue/date for fast repeat entry
+  state.newSaleDraft.venue = d.venue;
+  state.newSaleDraft.date = d.date;
+  render();
+}
+
+function openEditModal(id){
+  const rec = state.records.find(r=>r.id===id);
+  if(!rec) return;
+  state.modal = { type:'editRecord', payload: Object.assign({}, rec, {price: String(rec.price)}) };
+  render();
+}
+
+async function updateRecord(){
+  const d = state.modal.payload;
+  if(!d.price || Number(d.price) <= 0){ showToast("Please enter a valid price"); return; }
+  const { staffAmt, companyAmt } = computeAmounts(d.price, d.commission);
+  const ok = await updateRecordInDb(d.id, {
+    date:d.date, staff:d.staff, service:d.service, venue:d.venue,
+    price:Number(d.price), commission:Number(d.commission), staffAmt, companyAmt
+  });
+  if(!ok) return;
+  showToast("Sale updated ✓");
+  closeModal();
+}
+
+async function deleteRecord(id){
+  if(!confirm("Delete this sale record? This can't be undone.")) return;
+  await deleteRecordFromDb(id);
+  showToast("Record deleted");
+}
+
+async function addStaff(){
+  const input = document.getElementById('new-staff-name');
+  const name = (input ? input.value : state.staffAddValue).trim();
+  if(!name){ showToast("Enter a name first"); return; }
+  if(state.staff.includes(name)){ showToast("That staff member already exists"); return; }
+  state.staff.push(name);
+  state.staffAddValue = "";
+  await saveStaff();
+  showToast(`${name} added`);
+  render();
+}
+
+async function deleteStaff(name){
+  if(!confirm(`Remove ${name} from staff list? Past records will keep their name.`)) return;
+  state.staff = state.staff.filter(s=>s!==name);
+  await saveStaff();
+  showToast("Staff removed");
+  render();
+}
+
+function applyPreset(preset){
+  state.filters.preset = preset;
+  if(preset === 'today'){ state.filters.from = todayStr(); state.filters.to = todayStr(); }
+  else if(preset === 'month'){ state.filters.from = monthStartStr(); state.filters.to = monthEndStr(); }
+  else if(preset === 'all'){ state.filters.from = ''; state.filters.to = ''; }
+  render();
+}
+
+function exportCsv(){
+  const filtered = applyFilters();
+  if(filtered.length === 0){ showToast("Nothing to export"); return; }
+  const header = ['Date','Staff','Service','Venue','Price (RM)','Commission %','Partner Amount (RM)','Company Amount (RM)'];
+  const rows = filtered.map(r=>[r.date, r.staff, r.service, r.venue, r.price.toFixed(2), r.commission, r.staffAmt.toFixed(2), r.companyAmt.toFixed(2)]);
+  const csv = [header, ...rows].map(row => row.map(cell=>{
+    const s = String(cell);
+    return /[",\n]/.test(s) ? '"' + s.replace(/"/g,'""') + '"' : s;
+  }).join(',')).join('\n');
+  const blob = new Blob([csv], {type:'text/csv;charset=utf-8;'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = `studio-ledger-${todayStr()}.csv`;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  showToast("CSV exported");
+}
+
+async function changePassword(){
+  const cur = document.getElementById('set-cur-pw').value;
+  const next = document.getElementById('set-new-pw').value;
+  const confirmPw = document.getElementById('set-confirm-pw').value;
+  const errEl = document.getElementById('settings-error');
+  if(cur !== state.settings.password){ errEl.textContent = "Current password is incorrect."; return; }
+  if(!next || next.length < 4){ errEl.textContent = "New password must be at least 4 characters."; return; }
+  if(next !== confirmPw){ errEl.textContent = "New passwords don't match."; return; }
+  state.settings.password = next;
+  await saveSettings();
+  showToast("Password updated ✓");
+  closeModal();
+}
+
+function closeModal(){ state.modal = null; render(); }
+
+function logout(){
+  stopLiveListeners();
+  state.phase = 'login';
+  state.activeTab = 'dashboard';
+  state.modal = null;
+  state.loginError = "";
+  render();
+}
+
+/* =========================================================
+   INIT
+   ========================================================= */
+document.addEventListener('click', handleClick);
+
+(async function init(){
+  render();
+  if(!firebaseIsConfigured()){
+    state.phase = 'not-configured';
+    render();
+    return;
+  }
+  await loadSettings();
+  state.phase = 'login';
+  render();
+})();
+</script>
+</body>
+</html>
