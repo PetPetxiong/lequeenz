@@ -289,6 +289,21 @@ if(firebaseIsConfigured()){
 }
 
 /* =========================================================
+   SESSION (stay logged in across visits)
+   ========================================================= */
+const SESSION_KEY = 'studioLedgerSession';
+function setSession(on){
+  try{
+    if(on) localStorage.setItem(SESSION_KEY, 'true');
+    else localStorage.removeItem(SESSION_KEY);
+  }catch(e){ /* private browsing or storage blocked — login just won't persist */ }
+}
+function hasSession(){
+  try{ return localStorage.getItem(SESSION_KEY) === 'true'; }
+  catch(e){ return false; }
+}
+
+/* =========================================================
    STATE
    ========================================================= */
 let state = {
@@ -561,6 +576,7 @@ function bindLogin(){
   const tryLogin = async ()=>{
     if(input.value === state.settings.password){
       state.loginError = "";
+      setSession(true);
       startLiveListeners();
       state.phase = "app";
       render();
@@ -1190,6 +1206,7 @@ async function changePassword(){
 function closeModal(){ state.modal = null; render(); }
 
 function logout(){
+  setSession(false);
   stopLiveListeners();
   state.phase = 'login';
   state.activeTab = 'dashboard';
@@ -1211,7 +1228,12 @@ document.addEventListener('click', handleClick);
     return;
   }
   await loadSettings();
-  state.phase = 'login';
+  if(hasSession()){
+    startLiveListeners();
+    state.phase = 'app';
+  } else {
+    state.phase = 'login';
+  }
   render();
 })();
 </script>
