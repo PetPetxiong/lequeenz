@@ -403,7 +403,7 @@ function startLiveListeners(){
     if(list.length === 0 && !state._staffSeeded){
       state._staffSeeded = true;
       state.staff = ["Leila","Quinnie"];
-      saveStaff();
+      saveStaffList(state.staff);
     } else {
       state.staff = list;
     }
@@ -421,9 +421,9 @@ function stopLiveListeners(){
   unsubStaff = null; unsubRecords = null;
 }
 
-async function saveStaff(){
-  try{ await db.collection('meta').doc('staff').set({list: state.staff}); }
-  catch(e){ showToast("Couldn't save staff list — try again"); }
+async function saveStaffList(list){
+  try{ await db.collection('meta').doc('staff').set({list}); return true; }
+  catch(e){ showToast("Couldn't save staff list — try again"); return false; }
 }
 
 async function addRecordToDb(rec){
@@ -999,6 +999,21 @@ function renderModal(){
       </div>
     </div>`;
   }
+  if(state.modal.type === 'passwordGate'){
+    const actionLabel = state.modal.payload.action === 'delete' ? 'delete' : 'edit';
+    return `<div class="modal-backdrop" data-action="close-modal-backdrop">
+      <div class="modal-card" data-stop>
+        <div class="modal-head"><h3>Password Required</h3><button class="icon-btn" style="color:var(--ink); background:var(--surface-2);" data-action="close-modal">${ICONS.close}</button></div>
+        <div style="font-size:13.5px; color:var(--ink-soft); margin-bottom:14px;">Enter the studio password to ${actionLabel} this sale record.</div>
+        <div class="field">
+          <label>Password</label>
+          <input type="password" id="gate-pw" placeholder="Studio password" autocomplete="off">
+        </div>
+        <div id="gate-error" style="color:var(--danger); font-size:12.5px; margin-bottom:6px; min-height:14px;">${state.modal.gateError || ''}</div>
+        <button class="btn btn-primary" data-action="confirm-gate">Continue</button>
+      </div>
+    </div>`;
+  }
   return '';
 }
 
@@ -1023,6 +1038,13 @@ function bindShell(){
     if(input){
       input.addEventListener('input', e=> state.staffAddValue = e.target.value);
       input.addEventListener('keydown', e=>{ if(e.key==='Enter') addStaff(); });
+    }
+  }
+  if(state.modal && state.modal.type === 'passwordGate'){
+    const gateInput = document.getElementById('gate-pw');
+    if(gateInput){
+      gateInput.addEventListener('keydown', e=>{ if(e.key==='Enter') confirmPasswordGate(); });
+      gateInput.focus();
     }
   }
 }
@@ -1099,7 +1121,8 @@ function handleClick(e){
       saveNewRecord();
       break;
     case 'edit-record':
-      openEditModal(el.dataset.id);
+      state.modal = { type:'passwordGate', payload:{ action:'edit', id: el.dataset.id }, gateError:'' };
+      render();
       break;
     case 'update-record':
       updateRecord();
@@ -1108,7 +1131,11 @@ function handleClick(e){
       closeModal();
       break;
     case 'delete-record':
-      deleteRecord(el.dataset.id);
+      state.modal = { type:'passwordGate', payload:{ action:'delete', id: el.dataset.id }, gateError:'' };
+      render();
+      break;
+    case 'confirm-gate':
+      confirmPasswordGate();
       break;
     case 'add-staff':
       addStaff();
@@ -1169,6 +1196,24 @@ function openEditModal(id){
   render();
 }
 
+function confirmPasswordGate(){
+  const input = document.getElementById('gate-pw');
+  const val = input ? input.value : '';
+  const { action, id } = state.modal.payload;
+  if(val !== state.settings.password){
+    state.modal.gateError = "Incorrect password.";
+    render();
+    return;
+  }
+  state.modal = null;
+  if(action === 'edit'){
+    openEditModal(id);
+  } else if(action === 'delete'){
+    render();
+    deleteRecord(id);
+  }
+}
+
 async function updateRecord(){
   const d = state.modal.payload;
   if(!d.price || Number(d.price) <= 0){ showToast("Please enter a valid price"); return; }
@@ -1183,28 +1228,35 @@ async function updateRecord(){
 }
 
 async function deleteRecord(id){
-  if(!confirm("Delete this sale record? This can't be undone.")) return;
-  await deleteRecordFromDb(id);
-  showToast("Record deleted");
+  const ok = await deleteRecordFromDb(id);
+  if(ok) showToast("Record deleted");
 }
 
 async function addStaff(){
+  const btn = document.querySelector('[data-action="add-staff"]');
   const input = document.getElementById('new-staff-name');
   const name = (input ? input.value : state.staffAddValue).trim();
   if(!name){ showToast("Enter a name first"); return; }
   if(state.staff.includes(name)){ showToast("That staff member already exists"); return; }
-  state.staff.push(name);
+  if(btn){ btn.disabled = true; btn.style.opacity = '0.6'; }
+  const updatedList = [...state.staff, name];
   state.staffAddValue = "";
-  await saveStaff();
-  showToast(`${name} added`);
+  const ok = await saveStaffList(updatedList);
+  if(ok){
+    state.staff = updatedList; // optimistic update; the live listener will reconfirm right after
+    showToast(`${name} added`);
+  }
   render();
 }
 
 async function deleteStaff(name){
   if(!confirm(`Remove ${name} from staff list? Past records will keep their name.`)) return;
-  state.staff = state.staff.filter(s=>s!==name);
-  await saveStaff();
-  showToast("Staff removed");
+  const updatedList = state.staff.filter(s=>s!==name);
+  const ok = await saveStaffList(updatedList);
+  if(ok){
+    state.staff = updatedList;
+    showToast("Staff removed");
+  }
   render();
 }
 
