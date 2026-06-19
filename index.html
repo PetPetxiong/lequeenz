@@ -1000,7 +1000,10 @@ function renderStaff(){
           <div class="staff-month">${fmtMoney(earned)} · ${count} ${count===1?'sale':'sales'} this month</div>
         </div>
       </div>
-      <button class="icon-sm del" data-action="delete-staff" data-name="${escapeHtml(s)}" title="Remove staff">${ICONS.trash}</button>
+      <div style="display:flex; gap:6px; flex-shrink:0;">
+        <button class="icon-sm" data-action="rename-staff" data-name="${escapeHtml(s)}" title="Rename staff">${ICONS.edit}</button>
+        <button class="icon-sm del" data-action="delete-staff" data-name="${escapeHtml(s)}" title="Remove staff">${ICONS.trash}</button>
+      </div>
     </div>`;
   }).join('')}
   `;
@@ -1076,6 +1079,20 @@ function renderModal(){
       </div>
     </div>`;
   }
+  if(state.modal.type === 'renameStaff'){
+    return `<div class="modal-backdrop" data-action="close-modal-backdrop">
+      <div class="modal-card" data-stop>
+        <div class="modal-head"><h3>Rename Staff</h3><button class="icon-btn" style="color:var(--ink); background:var(--surface-2);" data-action="close-modal">${ICONS.close}</button></div>
+        <div style="font-size:13.5px; color:var(--ink-soft); margin-bottom:14px;">This updates their name on every past sale and keeps their login working under the new name.</div>
+        <div class="field">
+          <label>Name</label>
+          <input type="text" id="rename-input" value="${escapeHtml(state.modal.payload.oldName)}" autocomplete="off">
+        </div>
+        <div id="rename-error" style="color:var(--danger); font-size:12.5px; margin-bottom:6px; min-height:14px;">${state.modal.gateError || ''}</div>
+        <button class="btn btn-primary" data-action="confirm-rename-staff">Save Name</button>
+      </div>
+    </div>`;
+  }
   return '';
 }
 
@@ -1107,6 +1124,14 @@ function bindShell(){
     if(gateInput){
       gateInput.addEventListener('keydown', e=>{ if(e.key==='Enter') confirmPasswordGate(); });
       gateInput.focus();
+    }
+  }
+  if(state.modal && state.modal.type === 'renameStaff'){
+    const renameInput = document.getElementById('rename-input');
+    if(renameInput){
+      renameInput.addEventListener('keydown', e=>{ if(e.key==='Enter') renameStaff(); });
+      renameInput.focus();
+      renameInput.select();
     }
   }
 }
@@ -1204,6 +1229,13 @@ function handleClick(e){
       break;
     case 'delete-staff':
       deleteStaff(el.dataset.name);
+      break;
+    case 'rename-staff':
+      state.modal = { type:'renameStaff', payload:{ oldName: el.dataset.name }, gateError:'' };
+      render();
+      break;
+    case 'confirm-rename-staff':
+      renameStaff();
       break;
     case 'preset':
       applyPreset(el.dataset.preset);
@@ -1323,6 +1355,63 @@ async function deleteStaff(name){
     showToast("Staff removed");
   }
   render();
+}
+
+async function renameStaffInRecords(oldName, newName){
+  try{
+    const snap = await db.collection('records').where('staff','==',oldName).get();
+    if(snap.empty) return true;
+    const docs = snap.docs;
+    const chunkSize = 450; // stay under Firestore's 500-write batch limit
+    for(let i=0; i<docs.length; i+=chunkSize){
+      const batch = db.batch();
+      docs.slice(i, i+chunkSize).forEach(d=> batch.update(d.ref, { staff: newName }));
+      await batch.commit();
+    }
+    return true;
+  }catch(e){
+    console.error(e);
+    showToast("Renamed, but couldn't update past records — try again");
+    return false;
+  }
+}
+
+async function renameStaff(){
+  const input = document.getElementById('rename-input');
+  const oldName = state.modal.payload.oldName;
+  const newName = (input ? input.value : '').trim();
+  if(!newName){
+    state.modal.gateError = "Enter a name.";
+    render();
+    return;
+  }
+  if(newName === oldName){ closeModal(); return; }
+  if(state.staff.includes(newName)){
+    state.modal.gateError = "That name already exists.";
+    render();
+    return;
+  }
+
+  const updatedList = state.staff.map(s => s === oldName ? newName : s);
+  const ok = await saveStaffList(updatedList);
+  if(!ok) return;
+  state.staff = updatedList;
+
+  if(state.settings.staffPasswords && Object.prototype.hasOwnProperty.call(state.settings.staffPasswords, oldName)){
+    state.settings.staffPasswords[newName] = state.settings.staffPasswords[oldName];
+    delete state.settings.staffPasswords[oldName];
+    await saveSettings();
+  }
+
+  await renameStaffInRecords(oldName, newName);
+
+  if(state.currentUser && state.currentUser.role === 'staff' && state.currentUser.name === oldName){
+    state.currentUser = { role:'staff', name: newName };
+    setSession(state.currentUser);
+  }
+
+  showToast(`Renamed to ${newName} ✓`);
+  closeModal();
 }
 
 function applyPreset(preset){
