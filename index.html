@@ -292,15 +292,17 @@ if(firebaseIsConfigured()){
    SESSION (stay logged in across visits)
    ========================================================= */
 const SESSION_KEY = 'studioLedgerSession';
-function setSession(on){
+function setSession(identity){
   try{
-    if(on) localStorage.setItem(SESSION_KEY, 'true');
+    if(identity) localStorage.setItem(SESSION_KEY, JSON.stringify(identity));
     else localStorage.removeItem(SESSION_KEY);
   }catch(e){ /* private browsing or storage blocked — login just won't persist */ }
 }
-function hasSession(){
-  try{ return localStorage.getItem(SESSION_KEY) === 'true'; }
-  catch(e){ return false; }
+function getSession(){
+  try{
+    const raw = localStorage.getItem(SESSION_KEY);
+    return raw ? JSON.parse(raw) : null;
+  }catch(e){ return null; }
 }
 
 /* =========================================================
@@ -309,11 +311,12 @@ function hasSession(){
 let state = {
   phase: "loading",      // loading | login | app
   loginError: "",
-  settings: { password: DEFAULT_PASSWORD },
+  settings: { ownerPassword: DEFAULT_PASSWORD, staffPasswords: {} },
+  currentUser: null,      // { role: 'owner' } or { role: 'staff', name: 'Leila' }
   staff: [],
   records: [],
   activeTab: "dashboard",
-  modal: null,            // { type: 'editRecord'|'settings', payload }
+  modal: null,            // { type: 'editRecord'|'settings'|'passwordGate', payload }
   newSaleDraft: defaultDraft(),
   filters: { from: todayStr(), to: todayStr(), staff: "all", service: "all", venue: "all", preset: "today" },
   recordsView: "browse",
@@ -385,8 +388,20 @@ let unsubStaff = null, unsubRecords = null;
 async function loadSettings(){
   try{
     const doc = await db.collection('meta').doc('settings').get();
-    if(doc.exists){ state.settings = doc.data(); }
-    else { await db.collection('meta').doc('settings').set(state.settings); }
+    if(doc.exists){
+      const data = doc.data();
+      if(data.ownerPassword){
+        state.settings = { ownerPassword: data.ownerPassword, staffPasswords: data.staffPasswords || {} };
+      } else if(data.password){
+        // migrate from the old single shared-password format
+        state.settings = { ownerPassword: data.password, staffPasswords: {} };
+        await saveSettings();
+      } else {
+        await saveSettings();
+      }
+    } else {
+      await db.collection('meta').doc('settings').set(state.settings);
+    }
   }catch(e){
     console.error(e);
     showToast("Couldn't reach the database — check your Firebase setup");
@@ -395,6 +410,11 @@ async function loadSettings(){
 async function saveSettings(){
   try{ await db.collection('meta').doc('settings').set(state.settings); }
   catch(e){ showToast("Couldn't save settings — try again"); }
+}
+function isValidPassword(val){
+  if(!val) return false;
+  if(val === state.settings.ownerPassword) return true;
+  return Object.values(state.settings.staffPasswords || {}).includes(val);
 }
 
 function startLiveListeners(){
@@ -513,13 +533,14 @@ function render(){
 }
 
 function renderTopbar(){
+  const who = state.currentUser ? (state.currentUser.role === 'owner' ? 'Owner' : state.currentUser.name) : '';
   return `
   <div class="topbar">
     <div class="brand">
       <div class="brand-mark">SL</div>
       <div>
         <div class="brand-text">Studio Ledger</div>
-        <div class="brand-sub">Commission Tracker</div>
+        <div class="brand-sub">${who ? `Logged in as ${escapeHtml(who)}` : 'Commission Tracker'}</div>
       </div>
     </div>
     <div class="topbar-actions">
@@ -561,12 +582,12 @@ function renderLogin(){
       <div class="login-title">Studio Ledger</div>
       <div class="login-sub">Daily commission tracker for your beauty studio</div>
       <div class="field" style="text-align:left;">
-        <label for="login-pw">Studio password</label>
-        <input type="password" id="login-pw" placeholder="Enter password" autocomplete="current-password">
+        <label for="login-pw">Your password</label>
+        <input type="password" id="login-pw" placeholder="Enter your password" autocomplete="current-password">
       </div>
       <button class="btn btn-primary" id="login-btn">Enter Studio</button>
       <div class="login-error" id="login-error">${state.loginError}</div>
-      <div class="login-hint">First time here? The default password is <b>${escapeHtml(DEFAULT_PASSWORD)}</b> — change it anytime from Settings after logging in.</div>
+      <div class="login-hint">First time here? The owner password is <b>${escapeHtml(DEFAULT_PASSWORD)}</b>. Each staff member gets their own personal password, set up by the owner under Settings.</div>
     </div>
   </div>`;
 }
@@ -574,9 +595,18 @@ function bindLogin(){
   const btn = document.getElementById('login-btn');
   const input = document.getElementById('login-pw');
   const tryLogin = async ()=>{
-    if(input.value === state.settings.password){
+    const val = input.value;
+    let identity = null;
+    if(val && val === state.settings.ownerPassword){
+      identity = { role: 'owner', name: null };
+    } else if(val){
+      const staffMatch = Object.keys(state.settings.staffPasswords || {}).find(name => state.settings.staffPasswords[name] === val);
+      if(staffMatch) identity = { role: 'staff', name: staffMatch };
+    }
+    if(identity){
       state.loginError = "";
-      setSession(true);
+      state.currentUser = identity;
+      setSession(identity);
       startLiveListeners();
       state.phase = "app";
       render();
@@ -674,7 +704,13 @@ function renderNewSale(isEdit, rec){
   const noStaff = state.staff.length === 0 && !isEdit;
   let staffOptions = state.staff.slice();
   if(isEdit && d.staff && !staffOptions.includes(d.staff)) staffOptions = [d.staff, ...staffOptions];
-  if(!isEdit && !d.staff && staffOptions.length > 0){ d.staff = staffOptions[0]; }
+  if(!isEdit && !d.staff){
+    if(state.currentUser && state.currentUser.role === 'staff' && staffOptions.includes(state.currentUser.name)){
+      d.staff = state.currentUser.name;
+    } else if(staffOptions.length > 0){
+      d.staff = staffOptions[0];
+    }
+  }
 
   return `
   ${!isEdit ? `<div class="screen-title">New Sale</div><div class="screen-sub">Log a service and split the commission automatically</div>` : ''}
@@ -978,9 +1014,13 @@ function renderModal(){
     </div>`;
   }
   if(state.modal.type === 'settings'){
+    const isOwner = state.currentUser && state.currentUser.role === 'owner';
+    const myLabel = isOwner ? 'Owner Password' : 'My Password';
     return `<div class="modal-backdrop" data-action="close-modal-backdrop">
       <div class="modal-card" data-stop>
         <div class="modal-head"><h3>Settings</h3><button class="icon-btn" style="color:var(--ink); background:var(--surface-2);" data-action="close-modal">${ICONS.close}</button></div>
+
+        <div class="card-title">${myLabel}</div>
         <div class="field">
           <label>Current password</label>
           <input type="password" id="set-cur-pw" placeholder="Current password">
@@ -993,9 +1033,26 @@ function renderModal(){
           <label>Confirm new password</label>
           <input type="password" id="set-confirm-pw" placeholder="Confirm new password">
         </div>
-        <div id="settings-error" style="color:var(--danger); font-size:12.5px; margin-bottom:10px;"></div>
+        <div id="settings-error" style="color:var(--danger); font-size:12.5px; margin-bottom:10px; min-height:14px;"></div>
         <button class="btn btn-primary" data-action="change-password">Update Password</button>
-        <div class="login-hint" style="text-align:left;">This studio's data (sales, staff, and login) lives in your Firebase database and updates live across every device. The password screen keeps casual visitors out, but it isn't server-side security — check your Firestore security rules if you want to restrict access more strictly.</div>
+
+        ${isOwner ? `
+        <div class="stat-section-label">Staff Passwords</div>
+        ${state.staff.length === 0 ? `
+          <div style="font-size:12.5px; color:var(--ink-soft);">Add staff from the Staff tab first, then set their personal passwords here.</div>
+        ` : state.staff.map((s,idx)=>`
+          <div class="field">
+            <label>${escapeHtml(s)} ${(state.settings.staffPasswords && state.settings.staffPasswords[s]) ? '· password set' : '· not set yet'}</label>
+            <div class="add-row">
+              <input type="password" id="staff-pw-${idx}" placeholder="Set or reset password">
+              <button class="btn btn-secondary btn-sm" data-action="set-staff-password" data-idx="${idx}">Save</button>
+            </div>
+          </div>
+        `).join('')}
+        <div id="staff-pw-error" style="color:var(--danger); font-size:12.5px; margin-bottom:10px; min-height:14px;"></div>
+        ` : ''}
+
+        <div class="login-hint" style="text-align:left;">This studio's data (sales, staff, and login) lives in your Firebase database and updates live across every device. Passwords keep casual visitors out, but it isn't server-side security — check your Firestore security rules if you want to restrict access more strictly.</div>
       </div>
     </div>`;
   }
@@ -1156,6 +1213,9 @@ function handleClick(e){
     case 'change-password':
       changePassword();
       break;
+    case 'set-staff-password':
+      setStaffPassword(Number(el.dataset.idx));
+      break;
     case 'close-modal':
     case 'close-modal-backdrop':
       if(action==='close-modal-backdrop' && e.target !== el) break;
@@ -1200,7 +1260,7 @@ function confirmPasswordGate(){
   const input = document.getElementById('gate-pw');
   const val = input ? input.value : '';
   const { action, id } = state.modal.payload;
-  if(val !== state.settings.password){
+  if(!isValidPassword(val)){
     state.modal.gateError = "Incorrect password.";
     render();
     return;
@@ -1291,19 +1351,46 @@ async function changePassword(){
   const next = document.getElementById('set-new-pw').value;
   const confirmPw = document.getElementById('set-confirm-pw').value;
   const errEl = document.getElementById('settings-error');
-  if(cur !== state.settings.password){ errEl.textContent = "Current password is incorrect."; return; }
+  const isOwner = state.currentUser && state.currentUser.role === 'owner';
+  const currentStored = isOwner ? state.settings.ownerPassword : (state.settings.staffPasswords || {})[state.currentUser.name];
+
+  if(cur !== currentStored){ errEl.textContent = "Current password is incorrect."; return; }
   if(!next || next.length < 4){ errEl.textContent = "New password must be at least 4 characters."; return; }
   if(next !== confirmPw){ errEl.textContent = "New passwords don't match."; return; }
-  state.settings.password = next;
+
+  if(isOwner){
+    state.settings.ownerPassword = next;
+  } else {
+    if(!state.settings.staffPasswords) state.settings.staffPasswords = {};
+    state.settings.staffPasswords[state.currentUser.name] = next;
+  }
   await saveSettings();
   showToast("Password updated ✓");
   closeModal();
 }
 
+async function setStaffPassword(idx){
+  const name = state.staff[idx];
+  if(!name) return;
+  const input = document.getElementById(`staff-pw-${idx}`);
+  const val = input ? input.value : '';
+  const errEl = document.getElementById('staff-pw-error');
+  if(!val || val.length < 4){
+    if(errEl) errEl.textContent = "Password must be at least 4 characters.";
+    return;
+  }
+  if(!state.settings.staffPasswords) state.settings.staffPasswords = {};
+  state.settings.staffPasswords[name] = val;
+  await saveSettings();
+  showToast(`Password set for ${name} ✓`);
+  render();
+}
+
 function closeModal(){ state.modal = null; render(); }
 
 function logout(){
-  setSession(false);
+  setSession(null);
+  state.currentUser = null;
   stopLiveListeners();
   state.phase = 'login';
   state.activeTab = 'dashboard';
@@ -1325,7 +1412,9 @@ document.addEventListener('click', handleClick);
     return;
   }
   await loadSettings();
-  if(hasSession()){
+  const session = getSession();
+  if(session){
+    state.currentUser = session;
     startLiveListeners();
     state.phase = 'app';
   } else {
