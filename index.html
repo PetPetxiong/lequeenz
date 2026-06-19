@@ -474,7 +474,8 @@ const ICONS = {
   trash: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>',
   empty: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>',
   download: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>',
-  close: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>'
+  close: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>',
+  lock: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>'
 };
 
 /* =========================================================
@@ -701,15 +702,14 @@ function renderDashboard(){
 function renderNewSale(isEdit, rec){
   const d = isEdit ? rec : state.newSaleDraft;
   const { staffAmt, companyAmt } = computeAmounts(d.price, d.commission);
-  const noStaff = state.staff.length === 0 && !isEdit;
+  const lockedToStaff = !isEdit && state.currentUser && state.currentUser.role === 'staff';
+  const noStaff = state.staff.length === 0 && !isEdit && !lockedToStaff;
   let staffOptions = state.staff.slice();
   if(isEdit && d.staff && !staffOptions.includes(d.staff)) staffOptions = [d.staff, ...staffOptions];
-  if(!isEdit && !d.staff){
-    if(state.currentUser && state.currentUser.role === 'staff' && staffOptions.includes(state.currentUser.name)){
-      d.staff = state.currentUser.name;
-    } else if(staffOptions.length > 0){
-      d.staff = staffOptions[0];
-    }
+  if(lockedToStaff){
+    d.staff = state.currentUser.name;
+  } else if(!isEdit && !d.staff && staffOptions.length > 0){
+    d.staff = staffOptions[0];
   }
 
   return `
@@ -721,7 +721,12 @@ function renderNewSale(isEdit, rec){
     </div>
     <div class="field">
       <label>Staff / Partner</label>
-      ${noStaff ? `
+      ${lockedToStaff ? `
+        <div style="display:flex; align-items:center; gap:8px; font-size:14px; font-weight:700; background:var(--surface-2); border:1px solid var(--line); border-radius:var(--radius-sm); padding:11px 12px; color:var(--ink);">
+          <span style="width:16px;height:16px;display:inline-flex; color:var(--ink-soft);">${ICONS.lock}</span>${escapeHtml(d.staff)}
+        </div>
+        <div style="font-size:11px; color:var(--ink-soft); margin-top:5px;">Locked to your account — owner can log sales for anyone.</div>
+        ` : noStaff ? `
         <div style="font-size:13px; color:var(--ink-soft); background:var(--surface-2); border:1px dashed var(--line); border-radius:var(--radius-sm); padding:10px 12px;">
           No staff added yet. <a href="#" data-action="set-tab" data-tab="staff">Add a staff member first →</a>
         </div>` : `
