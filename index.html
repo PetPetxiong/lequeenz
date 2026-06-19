@@ -322,7 +322,7 @@ let state = {
 };
 
 function defaultDraft(){
-  return { date: todayStr(), staff: "", service: SERVICES[0], venue: "STUDIO", price: "", commission: 70 };
+  return { date: todayStr(), staff: "", service: SERVICES[0], customerName: "", venue: "STUDIO", price: "", commission: 70 };
 }
 
 /* =========================================================
@@ -594,6 +594,37 @@ function bindLogin(){
 /* =========================================================
    DASHBOARD
    ========================================================= */
+function staffBreakdownRows(records){
+  const map = {};
+  records.forEach(r=>{
+    if(!map[r.staff]) map[r.staff] = {count:0, sales:0, commission:0};
+    map[r.staff].count++;
+    map[r.staff].sales += r.price;
+    map[r.staff].commission += r.staffAmt;
+  });
+  state.staff.forEach(s=>{ if(!map[s]) map[s] = {count:0, sales:0, commission:0}; });
+  return Object.keys(map)
+    .sort((a,b)=> map[b].sales - map[a].sales)
+    .map(name=> Object.assign({name}, map[name]));
+}
+
+function renderStaffSplit(records){
+  const rows = staffBreakdownRows(records);
+  if(rows.length === 0) return '';
+  return `<div class="card">${rows.map(row=>`
+    <div class="summary-row" style="display:flex; justify-content:space-between; align-items:center; padding:9px 0; border-bottom:1px solid var(--line);">
+      <div style="display:flex; align-items:center; gap:10px;">
+        <div class="staff-avatar" style="width:30px;height:30px;font-size:12px;">${escapeHtml(initials(row.name))}</div>
+        <div>
+          <div style="font-weight:700; font-size:13.5px;">${escapeHtml(row.name)}</div>
+          <div style="font-size:11px; color:var(--ink-soft);">${row.count} ${row.count===1?'service':'services'} · ${fmtMoney(row.sales)} sold</div>
+        </div>
+      </div>
+      <div style="font-family:var(--font-mono); font-weight:600; font-size:14px; color:var(--rose-deep);">${fmtMoney(row.commission)}</div>
+    </div>`).join('')}
+  </div>`;
+}
+
 function renderDashboard(){
   const today = todayStr();
   const todays = recordsFor(today);
@@ -613,12 +644,18 @@ function renderDashboard(){
     <div class="stat-tile c-sage full"><div class="stat-label">Company Income</div><div class="stat-value">${fmtMoney(tCo)}</div></div>
   </div>
 
+  <div class="stat-section-label">Today by Staff</div>
+  ${renderStaffSplit(todays)}
+
   <div class="stat-section-label">This Month</div>
   <div class="stat-grid">
     <div class="stat-tile c-gold"><div class="stat-label">Total Sales</div><div class="stat-value">${fmtMoney(mSales)}</div></div>
     <div class="stat-tile c-rose"><div class="stat-label">Partner Commission</div><div class="stat-value">${fmtMoney(mComm)}</div></div>
     <div class="stat-tile c-sage full"><div class="stat-label">Company Income</div><div class="stat-value">${fmtMoney(mCo)}</div></div>
   </div>
+
+  <div class="stat-section-label">This Month by Staff</div>
+  ${renderStaffSplit(monthRecs)}
 
   <div class="stat-section-label">Today's Entries (${recentToday.length})</div>
   ${recentToday.length === 0 ? `
@@ -663,6 +700,10 @@ function renderNewSale(isEdit, rec){
       </select>
     </div>
     <div class="field">
+      <label>Customer Name</label>
+      <input type="text" id="f-customer" placeholder="e.g. Sarah" value="${escapeHtml(d.customerName || '')}" autocomplete="off">
+    </div>
+    <div class="field">
       <label>Venue</label>
       <div class="pill-row">
         ${VENUES.map(v=>`<button type="button" class="pill-btn venue ${d.venue===v?'active':''}" data-action="set-venue" data-venue="${v}">${v}</button>`).join('')}
@@ -701,11 +742,12 @@ function renderNewSale(isEdit, rec){
    RECORD CARD (shared by dashboard + records list)
    ========================================================= */
 function renderRecordCard(r){
+  const customerBit = r.customerName ? ` — ${escapeHtml(r.customerName)}` : '';
   return `
   <div class="rec-card">
     <div class="rec-top">
       <div>
-        <div class="rec-service">${escapeHtml(r.service)} <span class="rec-venue-tag ${venueTagClass(r.venue)}">${r.venue}</span></div>
+        <div class="rec-service">${escapeHtml(r.service)}${customerBit} <span class="rec-venue-tag ${venueTagClass(r.venue)}">${r.venue}</span></div>
         <div class="rec-meta">${escapeHtml(r.staff)} · ${fmtDate(r.date)} · ${r.commission}% commission</div>
       </div>
       <div class="rec-actions">
@@ -990,10 +1032,12 @@ function bindSaleForm(isEdit){
   const dateEl = document.getElementById('f-date');
   const staffEl = document.getElementById('f-staff');
   const serviceEl = document.getElementById('f-service');
+  const customerEl = document.getElementById('f-customer');
   const priceEl = document.getElementById('f-price');
   if(dateEl) dateEl.addEventListener('change', e=>{ draftRef.date = e.target.value; });
   if(staffEl) staffEl.addEventListener('change', e=>{ draftRef.staff = e.target.value; });
   if(serviceEl) serviceEl.addEventListener('change', e=>{ draftRef.service = e.target.value; });
+  if(customerEl) customerEl.addEventListener('input', e=>{ draftRef.customerName = e.target.value; });
   if(priceEl) priceEl.addEventListener('input', e=>{ draftRef.price = e.target.value; livePreviewUpdate(isEdit); });
 }
 
@@ -1103,7 +1147,8 @@ async function saveNewRecord(){
   if(!d.price || Number(d.price) <= 0){ showToast("Please enter a valid price"); return; }
   const { staffAmt, companyAmt } = computeAmounts(d.price, d.commission);
   const rec = {
-    id: uid(), date: d.date, staff: d.staff, service: d.service, venue: d.venue,
+    id: uid(), date: d.date, staff: d.staff, service: d.service,
+    customerName: (d.customerName || '').trim(), venue: d.venue,
     price: Number(d.price), commission: Number(d.commission), staffAmt, companyAmt,
     createdAt: new Date().toISOString()
   };
@@ -1129,7 +1174,7 @@ async function updateRecord(){
   if(!d.price || Number(d.price) <= 0){ showToast("Please enter a valid price"); return; }
   const { staffAmt, companyAmt } = computeAmounts(d.price, d.commission);
   const ok = await updateRecordInDb(d.id, {
-    date:d.date, staff:d.staff, service:d.service, venue:d.venue,
+    date:d.date, staff:d.staff, service:d.service, customerName:(d.customerName || '').trim(), venue:d.venue,
     price:Number(d.price), commission:Number(d.commission), staffAmt, companyAmt
   });
   if(!ok) return;
@@ -1174,8 +1219,8 @@ function applyPreset(preset){
 function exportCsv(){
   const filtered = applyFilters();
   if(filtered.length === 0){ showToast("Nothing to export"); return; }
-  const header = ['Date','Staff','Service','Venue','Price (RM)','Commission %','Partner Amount (RM)','Company Amount (RM)'];
-  const rows = filtered.map(r=>[r.date, r.staff, r.service, r.venue, r.price.toFixed(2), r.commission, r.staffAmt.toFixed(2), r.companyAmt.toFixed(2)]);
+  const header = ['Date','Staff','Service','Customer','Venue','Price (RM)','Commission %','Partner Amount (RM)','Company Amount (RM)'];
+  const rows = filtered.map(r=>[r.date, r.staff, r.service, r.customerName || '', r.venue, r.price.toFixed(2), r.commission, r.staffAmt.toFixed(2), r.companyAmt.toFixed(2)]);
   const csv = [header, ...rows].map(row => row.map(cell=>{
     const s = String(cell);
     return /[",\n]/.test(s) ? '"' + s.replace(/"/g,'""') + '"' : s;
